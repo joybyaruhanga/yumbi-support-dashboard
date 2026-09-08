@@ -1,0 +1,60 @@
+name: Refresh dashboard data
+
+# Runs server-side on GitHub's runners. Your API tokens live in
+# Settings > Secrets and variables > Actions and are injected as env
+# vars below. They are never written to data.json or the served page.
+
+on:
+  schedule:
+    # Hourly, on the hour (UTC). Chosen to stay inside the Free plan's
+    # 2,000 private-repo Actions minutes/month (~730 runs/month here).
+    - cron: '0 * * * *'
+    # Want fresher numbers during the working day and still stay free?
+    # Comment out the line above and use this instead (every 20 min,
+    # 06:00-16:00 UTC Mon-Fri = ~08:00-18:00 SAST):
+    # - cron: '*/20 6-16 * * 1-5'
+  workflow_dispatch: {}       # lets you run it on demand from the Actions tab
+
+permissions:
+  contents: write             # needed to commit the refreshed data.json
+
+concurrency:
+  group: refresh-dashboard-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch and aggregate support stats
+        env:
+          # Euphoria
+          EUPHORIA_API_BASE:   ${{ secrets.EUPHORIA_API_BASE }}
+          EUPHORIA_API_TOKEN:  ${{ secrets.EUPHORIA_API_TOKEN }}
+          # Zoho Desk (OAuth 2.0)
+          ZOHO_DC:             ${{ secrets.ZOHO_DC }}            # e.g. com, eu, in, com.au
+          ZOHO_ORG_ID:         ${{ secrets.ZOHO_ORG_ID }}
+          ZOHO_CLIENT_ID:      ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET:  ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN:  ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          # Live chat (Intercom)
+          INTERCOM_TOKEN:      ${{ secrets.INTERCOM_TOKEN }}
+        run: node scripts/fetch-stats.js
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name  "yumbi-dashboard-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data.json
+          if git diff --cached --quiet; then
+            echo "No change in data.json"
+          else
+            git commit -m "chore: refresh dashboard data"
+            git push
+          fi
