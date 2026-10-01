@@ -24,7 +24,7 @@ async function call(url, opts, source) {
 
 const num = v => (v === null || v === undefined || isNaN(Number(v))) ? null : Number(v);
 
-/* ---------- date ranges (South African time) ---------- */
+/* ---------- dates (South African time) ---------- */
 function todayInTZ() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
@@ -32,44 +32,60 @@ function addDays(ymd, n) {
   const d = new Date(ymd + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
-function buildRanges() {
-  const t = todayInTZ();
-  return {
-    today:     { from: t, to: t, label: "today" },
-    yesterday: { from: addDays(t, -1), to: addDays(t, -1), label: "yesterday" },
-    last7:     { from: addDays(t, -6), to: t, label: "last 7 days" },
-    last30:    { from: addDays(t, -29), to: t, label: "last 30 days" },
-    month:     { from: t.slice(0, 8) + "01", to: t, label: "this month" }
-  };
-}
+const HISTORY_DAYS = Math.max(1, Math.min(365, Number(env("HISTORY_DAYS", "90")) || 90));
 
-/* ---------- LiveChat (Reports API v3.6) ---------- */
-async function liveChat(r) {
+/* ---------- LiveChat (Reports API v3.6), one figure per day ---------- */
+// Returns { "YYYY-MM-DD": { total, bot, agent, bot_good, bot_bad, agent_good, agent_bad } }
+async function liveChatDaily(from, to, errors) {
   const acc = env("LIVECHAT_ACCOUNT_ID"), tok = env("LIVECHAT_TOKEN");
   if (!acc || !tok) throw new SourceError("LiveChat: keys not set up yet");
   const auth = "Basic " + Buffer.from(acc + ":" + tok).toString("base64");
-  const base = "https://api.livechatinc.com/v3.6/reports/chats/";
-  const filters = { from: r.from + "T00:00:00" + TZ_OFFSET, to: r.to + "T23:59:59" + TZ_OFFSET };
+  const headers = { Authorization: auth, "Content-Type": "application/json" };
 
-  const report = (action, extra) => call(base + action, {
-    method: "POST",
-    headers: { Authorization: auth, "Content-Type": "application/json" },
+  // Which LiveChat agents are bots? Only bot IDs are kept, never names or emails.
+  let botIds = (env("LIVECHAT_BOT_IDS", "") || "").split(",").map(x => x.trim()).filter(Boolean);
+  if (!botIds.length) {
+    try {
+      const bots = await call("https://api.livechatinc.com/v3.6/configuration/action/list_bots",
+        { method: "POST", headers, body: JSON.stringify({ all: true }) }, "LiveChat bots");
+      botIds = (Array.isArray(bots) ? bots : []).map(b => b && b.id).filter(Boolean);
+    } catch (e) {
+      errors.push("LiveChat: could not look up the chatbot (" + (e.message || "error") + "). Bot figures need the token's 'bots' read access, or a LIVECHAT_BOT_IDS variable.");
+    }
+    if (!botIds.length && !errors.some(x => x.includes("chatbot"))) errors.push("LiveChat: no chatbot found on the account, so bot figures are blank");
+  }
+
+  const filters = { from: from + "T00:00:00" + TZ_OFFSET, to: to + "T23:59:59" + TZ_OFFSET };
+  const report = (action, extra) => call("https://api.livechatinc.com/v3.6/reports/chats/" + action, {
+    method: "POST", headers,
     body: JSON.stringify({ distribution: "day", filters: Object.assign({}, filters, extra || {}) })
-  }, "LiveChat");
-  const sum = (json, key) => Object.values((json && json.records) || {}).reduce((a, d) => a + (Number(d && d[key]) || 0), 0);
+  }, "LiveChat").then(j => (j && j.records) || {});
 
-  const [all, handled, ratings] = await Promise.all([
+  const hasBot = botIds.length > 0;
+  const [all, withAgent, withBot, botRatings, agentRatings] = await Promise.all([
     report("total_chats"),
-    report("total_chats", { agents: { exists: true } }), // chats an agent took part in
-    report("ratings")
+    report("total_chats", { agents: { exists: true } }),               // chats anyone (bot or person) took part in
+    hasBot ? report("total_chats", { agents: { values: botIds } }) : null,       // chats the bot took part in
+    hasBot ? report("ratings", { agents: { values: botIds } }) : null,
+    hasBot ? report("ratings", { agents: { exclude_values: botIds } }) : report("ratings")
   ]);
-  // LiveChat ratings are thumbs up / down. Converted to a 0-5 score: (good / rated) x 5
-  const good = sum(ratings, "good"), bad = sum(ratings, "bad");
-  return {
-    received: sum(all, "total"),
-    handled: sum(handled, "total"),
-    csat: (good + bad) > 0 ? Math.round(good / (good + bad) * 500) / 100 : null
-  };
+
+  const day = (rec, d, key) => Number(rec && rec[d] && rec[d][key]) || 0;
+  const out = {};
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const bot = hasBot ? day(withBot, d, "total") : null;
+    out[d] = {
+      total: day(all, d, "total"),
+      bot: bot,
+      // a person, with no bot involved (chats the bot passed to a person count under bot)
+      agent: Math.max(0, day(withAgent, d, "total") - (bot || 0)),
+      bot_good: hasBot ? day(botRatings, d, "good") : null,
+      bot_bad: hasBot ? day(botRatings, d, "bad") : null,
+      agent_good: day(agentRatings, d, "good"),
+      agent_bad: day(agentRatings, d, "bad")
+    };
+  }
+  return out;
 }
 
 /* ---------- Zoho Desk (current backlog snapshot) ---------- */
@@ -103,44 +119,32 @@ async function zohoSnapshot() {
 }
 
 /* ---------- Euphoria ---------- */
-async function euphoria(r) {
-  // Euphoria's call-list API returns caller phone numbers, so it is NOT used here.
-  // Waiting on Euphoria to confirm an API call that returns totals only
-  // (calls received / answered / abandoned and agents logged on).
-  throw new SourceError("Euphoria: waiting on a totals-only API call from Euphoria");
-}
+// Euphoria's call-list API returns caller phone numbers, so it is NOT used here.
+// Waiting on Euphoria to confirm an API call that returns totals only.
+const EUPHORIA_NOTE = "Euphoria: waiting on a totals-only API call from Euphoria";
 
 /* ---------- run ---------- */
-async function attempt(fn, keys) {
-  try { return { data: await fn(), err: null }; }
-  catch (e) {
-    const blank = Object.fromEntries(keys.map(k => [k, null]));
-    return { data: blank, err: e instanceof SourceError ? e.message : "Unexpected error while pulling data" };
-  }
-}
+const safe = e => (e instanceof SourceError ? e.message : "Unexpected error while pulling data");
 
 (async () => {
-  const ranges = buildRanges();
-  const asOf = new Date().toISOString();
+  const to = todayInTZ(), from = addDays(to, -(HISTORY_DAYS - 1));
+  const out = {
+    generated_at: new Date().toISOString(),
+    history: { from, to },
+    daily: {},
+    zoho: {},
+    errors: { euphoria: [EUPHORIA_NOTE], chat: [], zoho: [] }
+  };
 
-  const zoho = await attempt(zohoSnapshot, ["open", "config", "thirdparty"]);
-  const zohoPending = "Zoho: unassigned, handled and response/resolution times are the next step to add";
+  try {
+    const chat = await liveChatDaily(from, to, out.errors.chat);
+    for (const [d, c] of Object.entries(chat)) out.daily[d] = { chat: c };
+  } catch (e) { out.errors.chat.push(safe(e)); }
 
-  const out = { generated_at: asOf, ranges: {} };
-  for (const [key, r] of Object.entries(ranges)) {
-    const [chat, eu] = await Promise.all([
-      attempt(() => liveChat(r), ["received", "handled", "csat"]),
-      attempt(() => euphoria(r), ["received", "answered", "abandoned", "agents"])
-    ]);
-    out.ranges[key] = Object.assign({}, r, {
-      euphoria: eu.data,
-      chat: chat.data,
-      zoho: Object.assign({ unassigned: null, handled_total: null, avg_first_response: null, avg_resolution: null }, zoho.data),
-      as_of: asOf,
-      errors: [eu.err, chat.err, zoho.err, zohoPending].filter(Boolean)
-    });
-  }
+  try { out.zoho = await zohoSnapshot(); }
+  catch (e) { out.errors.zoho.push(safe(e)); }
+  out.errors.zoho.push("Zoho: unassigned, handled and response/resolution times are the next step to add");
 
-  fs.writeFileSync("data.json", JSON.stringify(out, null, 2));
-  console.log("data.json written for " + Object.keys(out.ranges).length + " date ranges");
+  fs.writeFileSync("data.json", JSON.stringify(out));
+  console.log("data.json written: " + Object.keys(out.daily).length + " days of chat figures");
 })();
