@@ -35,7 +35,7 @@ jobs:
           ZOHO_DEPARTMENT_ID: ${{ vars.ZOHO_DEPARTMENT_ID }}
           ZOHO_STATUS_CONFIG: ${{ vars.ZOHO_STATUS_CONFIG }}
           ZOHO_STATUS_THIRDPARTY: ${{ vars.ZOHO_STATUS_THIRDPARTY }}
-          LIVECHAT_BOT_IDS: ${{ vars.LIVECHAT_BOT_IDS }}
+          LIVECHAT_AGENT_GROUP_IDS: ${{ vars.LIVECHAT_AGENT_GROUP_IDS }}
           HISTORY_DAYS: ${{ vars.HISTORY_DAYS }}
         run: node scripts/fetch-data.js
 
