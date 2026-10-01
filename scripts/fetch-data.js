@@ -55,34 +55,63 @@ async function liveChatDaily(from, to, errors) {
     if (!botIds.length && !errors.some(x => x.includes("chatbot"))) errors.push("LiveChat: no chatbot found on the account, so bot figures are blank");
   }
 
-  const filters = { from: from + "T00:00:00" + TZ_OFFSET, to: to + "T23:59:59" + TZ_OFFSET };
-  const report = (action, extra) => call("https://api.livechatinc.com/v3.6/reports/chats/" + action, {
-    method: "POST", headers,
-    body: JSON.stringify({ distribution: "day", filters: Object.assign({}, filters, extra || {}) })
-  }, "LiveChat").then(j => (j && j.records) || {});
+  // Ask LiveChat one report at a time, in 30-day blocks, so a single failure
+  // only blanks the figure it affects instead of the whole card.
+  const chunks = [];
+  for (let start = from; start <= to; start = addDays(start, 30)) {
+    const end = addDays(start, 29) < to ? addDays(start, 29) : to;
+    chunks.push([start, end]);
+  }
+  async function report(action, extra, label) {
+    const merged = {};
+    for (const [s0, e0] of chunks) {
+      let res;
+      try {
+        res = await fetch("https://api.livechatinc.com/v3.6/reports/chats/" + action, {
+          method: "POST", headers,
+          body: JSON.stringify({ distribution: "day",
+            filters: Object.assign({ from: s0 + "T00:00:00" + TZ_OFFSET, to: e0 + "T23:59:59" + TZ_OFFSET }, extra || {}) })
+        });
+      } catch (e) { errors.push("LiveChat " + label + ": could not connect"); return null; }
+      if (!res.ok) {
+        // LiveChat's error type and message only (never the request or the token)
+        let why = "";
+        try { const j = await res.json(); const er = (j && j.error) || {}; why = [er.type, er.message].filter(Boolean).join(" - ").slice(0, 160); } catch (e) {}
+        errors.push("LiveChat " + label + ": responded " + res.status + (why ? " (" + why + ")" : ""));
+        return null;
+      }
+      const j = await res.json();
+      Object.assign(merged, (j && j.records) || {});
+    }
+    return merged;
+  }
 
   const hasBot = botIds.length > 0;
-  const [all, withAgent, withBot, botRatings, agentRatings] = await Promise.all([
-    report("total_chats"),
-    report("total_chats", { agents: { exists: true } }),               // chats anyone (bot or person) took part in
-    hasBot ? report("total_chats", { agents: { values: botIds } }) : null,       // chats the bot took part in
-    hasBot ? report("ratings", { agents: { values: botIds } }) : null,
-    hasBot ? report("ratings", { agents: { exclude_values: botIds } }) : report("ratings")
-  ]);
+  const botFilter = { agents: { values: botIds } };
+  const all        = await report("total_chats", null, "total chats");
+  const withAgent  = await report("total_chats", { agents: { exists: true } }, "chats with an agent");
+  const withBot    = hasBot ? await report("total_chats", botFilter, "bot chats") : null;
+  const allRatings = await report("ratings", null, "ratings");
+  const botRatings = hasBot ? await report("ratings", botFilter, "bot ratings") : null;
 
-  const day = (rec, d, key) => Number(rec && rec[d] && rec[d][key]) || 0;
+  if (!all && !withAgent && !allRatings) throw new SourceError(errors.pop() || "LiveChat: no data returned");
+
+  const day = (rec, d, key) => rec ? (Number(rec[d] && rec[d][key]) || 0) : null;
+  const minus = (x, y) => (x === null ? null : Math.max(0, x - (y || 0)));
   const out = {};
   for (let d = from; d <= to; d = addDays(d, 1)) {
-    const bot = hasBot ? day(withBot, d, "total") : null;
+    const bot = day(withBot, d, "total");
+    const botGood = day(botRatings, d, "good"), botBad = day(botRatings, d, "bad");
     out[d] = {
       total: day(all, d, "total"),
       bot: bot,
-      // a person, with no bot involved (chats the bot passed to a person count under bot)
-      agent: Math.max(0, day(withAgent, d, "total") - (bot || 0)),
-      bot_good: hasBot ? day(botRatings, d, "good") : null,
-      bot_bad: hasBot ? day(botRatings, d, "bad") : null,
-      agent_good: day(agentRatings, d, "good"),
-      agent_bad: day(agentRatings, d, "bad")
+      // a person with no bot involved (chats the bot passed to a person count under bot)
+      agent: (hasBot && bot === null) ? null : minus(day(withAgent, d, "total"), bot),
+      bot_good: botGood,
+      bot_bad: botBad,
+      // ratings on chats without the bot = all ratings minus bot-chat ratings
+      agent_good: (hasBot && botGood === null) ? null : minus(day(allRatings, d, "good"), botGood),
+      agent_bad:  (hasBot && botBad === null)  ? null : minus(day(allRatings, d, "bad"), botBad)
     };
   }
   return out;
