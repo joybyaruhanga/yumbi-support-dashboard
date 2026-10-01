@@ -35,6 +35,10 @@ function addDays(ymd, n) {
 const HISTORY_DAYS = Math.max(1, Math.min(365, Number(env("HISTORY_DAYS", "90")) || 90));
 
 /* ---------- LiveChat (Reports API v3.6), one figure per day ---------- */
+// Bot vs agent is split by LiveChat GROUP (group IDs and names only, never
+// agent names or emails). Set the variable LIVECHAT_AGENT_GROUP_IDS to the
+// group(s) your people work in. Chats in those groups count as "Handled by agent";
+// everything else counts as "Handled by bot".
 // Returns { "YYYY-MM-DD": { total, bot, agent, bot_good, bot_bad, agent_good, agent_bad } }
 async function liveChatDaily(from, to, errors) {
   const acc = env("LIVECHAT_ACCOUNT_ID"), tok = env("LIVECHAT_TOKEN");
@@ -42,39 +46,25 @@ async function liveChatDaily(from, to, errors) {
   const auth = "Basic " + Buffer.from(acc + ":" + tok).toString("base64");
   const headers = { Authorization: auth, "Content-Type": "application/json" };
 
-  // Which LiveChat agents are bots? Only bot IDs are kept, never names or emails.
-  let botIds = (env("LIVECHAT_BOT_IDS", "") || "").split(",").map(x => x.trim()).filter(Boolean);
-  if (!botIds.length) {
-    try {
-      const bots = await call("https://api.livechatinc.com/v3.6/configuration/action/list_bots",
-        { method: "POST", headers, body: JSON.stringify({ all: true }) }, "LiveChat bots");
-      botIds = (Array.isArray(bots) ? bots : []).map(b => b && b.id).filter(Boolean);
-    } catch (e) {
-      errors.push("LiveChat: could not look up the chatbot (" + (e.message || "error") + "). Bot figures need the token's 'bots' read access, or a LIVECHAT_BOT_IDS variable.");
-    }
-    if (!botIds.length && !errors.some(x => x.includes("chatbot"))) errors.push("LiveChat: no chatbot found on the account, so bot figures are blank");
-  }
-
-  // Ask LiveChat one report at a time, in 30-day blocks, so a single failure
-  // only blanks the figure it affects instead of the whole card.
+  // 30-day blocks, one report at a time, so a single failure only blanks its own figure
   const chunks = [];
   for (let start = from; start <= to; start = addDays(start, 30)) {
     const end = addDays(start, 29) < to ? addDays(start, 29) : to;
     chunks.push([start, end]);
   }
-  async function report(action, extra, label) {
+  async function report(action, extra, label, onlyFrom) {
     const merged = {};
     for (const [s0, e0] of chunks) {
+      if (onlyFrom && e0 < onlyFrom) continue;
       let res;
       try {
         res = await fetch("https://api.livechatinc.com/v3.6/reports/chats/" + action, {
           method: "POST", headers,
-          body: JSON.stringify({ distribution: "day",
+          body: JSON.stringify({ distribution: "day", timezone: TZ,
             filters: Object.assign({ from: s0 + "T00:00:00" + TZ_OFFSET, to: e0 + "T23:59:59" + TZ_OFFSET }, extra || {}) })
         });
       } catch (e) { errors.push("LiveChat " + label + ": could not connect"); return null; }
       if (!res.ok) {
-        // LiveChat's error type and message only (never the request or the token)
         let why = "";
         try { const j = await res.json(); const er = (j && j.error) || {}; why = [er.type, er.message].filter(Boolean).join(" - ").slice(0, 160); } catch (e) {}
         errors.push("LiveChat " + label + ": responded " + res.status + (why ? " (" + why + ")" : ""));
@@ -86,32 +76,52 @@ async function liveChatDaily(from, to, errors) {
     return merged;
   }
 
-  const hasBot = botIds.length > 0;
-  const botFilter = { agents: { values: botIds } };
-  const all        = await report("total_chats", null, "total chats");
-  const withAgent  = await report("total_chats", { agents: { exists: true } }, "chats with an agent");
-  const withBot    = hasBot ? await report("total_chats", botFilter, "bot chats") : null;
-  const allRatings = await report("ratings", null, "ratings");
-  const botRatings = hasBot ? await report("ratings", botFilter, "bot ratings") : null;
+  // Helper for setup: print every LiveChat group with its chat count (last 30 days)
+  // to the GitHub Actions log, so you can see which group your agents work in.
+  try {
+    const recent = addDays(to, -29);
+    const perDay = await report("groups", null, "group list", recent) || {};
+    const counts = {};
+    for (const [d, g] of Object.entries(perDay)) if (d >= recent) for (const [id, n] of Object.entries(g || {})) counts[id] = (counts[id] || 0) + (Number(n) || 0);
+    let names = {};
+    try {
+      const res = await fetch("https://api.livechatinc.com/v3.6/configuration/action/list_groups",
+        { method: "POST", headers, body: "{}" });
+      if (res.ok) for (const g of (await res.json()) || []) names[g.id] = g.name;
+    } catch (e) {}
+    console.log("LiveChat groups, chats in the last 30 days:");
+    for (const [id, n] of Object.entries(counts).sort((x, y) => y[1] - x[1])) {
+      console.log("  Group " + id + (names[id] ? " (" + names[id] + ")" : "") + ": " + n + " chats");
+    }
+  } catch (e) {}
 
-  if (!all && !withAgent && !allRatings) throw new SourceError(errors.pop() || "LiveChat: no data returned");
+  const groupIds = (env("LIVECHAT_AGENT_GROUP_IDS", "") || "").split(",").map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
+  const agentFilter = groupIds.length ? { groups: { values: groupIds } } : null;
+  if (!agentFilter) errors.push("LiveChat: bot and agent figures need the LIVECHAT_AGENT_GROUP_IDS setting (see the group list in the GitHub Actions log)");
+
+  const all          = await report("total_chats", null, "total chats");
+  const allRatings   = await report("ratings", null, "ratings");
+  const agentChats   = agentFilter ? await report("total_chats", agentFilter, "agent chats") : null;
+  const agentRatings = agentFilter ? await report("ratings", agentFilter, "agent ratings") : null;
+
+  if (!all && !allRatings) throw new SourceError(errors.pop() || "LiveChat: no data returned");
 
   const day = (rec, d, key) => rec ? (Number(rec[d] && rec[d][key]) || 0) : null;
-  const minus = (x, y) => (x === null ? null : Math.max(0, x - (y || 0)));
+  const minus = (x, y) => (x === null || y === null) ? null : Math.max(0, x - y);
   const out = {};
   for (let d = from; d <= to; d = addDays(d, 1)) {
-    const bot = day(withBot, d, "total");
-    const botGood = day(botRatings, d, "good"), botBad = day(botRatings, d, "bad");
+    const agent = day(agentChats, d, "total");
+    const aGood = day(agentRatings, d, "good"), aBad = day(agentRatings, d, "bad");
     out[d] = {
       total: day(all, d, "total"),
-      bot: bot,
-      // a person with no bot involved (chats the bot passed to a person count under bot)
-      agent: (hasBot && bot === null) ? null : minus(day(withAgent, d, "total"), bot),
-      bot_good: botGood,
-      bot_bad: botBad,
-      // ratings on chats without the bot = all ratings minus bot-chat ratings
-      agent_good: (hasBot && botGood === null) ? null : minus(day(allRatings, d, "good"), botGood),
-      agent_bad:  (hasBot && botBad === null)  ? null : minus(day(allRatings, d, "bad"), botBad)
+      agent: agent,
+      bot: minus(day(all, d, "total"), agent),
+      agent_good: aGood,
+      agent_bad: aBad,
+      bot_good: minus(day(allRatings, d, "good"), aGood),
+      bot_bad: minus(day(allRatings, d, "bad"), aBad),
+      all_good: day(allRatings, d, "good"),
+      all_bad: day(allRatings, d, "bad")
     };
   }
   return out;
