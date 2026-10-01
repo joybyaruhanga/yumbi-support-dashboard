@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YUMBI Support Operations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EAEDF2; --surface:#FFFFFF; --surface-2:#F6F8FB;
+    --ink:#161C2B; --muted:#6B7689; --line:#E2E7EE;
+    --euphoria:#2563B8; --chat:#0E9488; --zoho:#6D5BD0;
+    --good:#16A34A; --warn:#D97706; --crit:#DC2626;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Inter",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; line-height:1.45;
+    padding:22px clamp(14px,3vw,34px) 60px;
+  }
+  .num{font-variant-numeric:tabular-nums;}
+
+  .topbar{display:flex; flex-wrap:wrap; gap:18px; align-items:flex-end; justify-content:space-between; margin-bottom:20px;}
+  .brand h1{font-family:"Space Grotesk",sans-serif; font-weight:700; font-size:clamp(22px,3vw,30px); letter-spacing:-.02em; margin:0;}
+  .brand .sub{color:var(--muted); font-size:13px; margin-top:2px;}
+  .brand .sub b{color:var(--ink); font-weight:600; text-transform:capitalize;}
+  .meta{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .stamp{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:8px 12px; font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:8px;}
+  .stamp b{color:var(--ink); font-weight:600;}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--good); position:relative; flex:none;}
+  .dot.live::after{content:""; position:absolute; inset:-4px; border-radius:50%; border:1px solid var(--good); opacity:.6; animation:pulse 2.4s ease-out infinite;}
+  .dot.warn{background:var(--warn);} .dot.crit{background:var(--crit);} .dot.idle{background:var(--muted);}
+  @keyframes pulse{0%{transform:scale(.6);opacity:.7}100%{transform:scale(1.8);opacity:0}}
+  button{font-family:inherit; cursor:pointer;}
+  .btn{border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:10px; padding:9px 15px; font-size:13px; font-weight:600; transition:background .15s,border-color .15s; display:flex; align-items:center; gap:7px;}
+  .btn:hover{background:var(--surface-2);}
+  .btn.primary{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .btn.primary:hover{background:#0c1118;}
+  .btn:disabled{opacity:.55; cursor:default;}
+  .btn:focus-visible, .ctrl:focus-visible{outline:2px solid var(--euphoria); outline-offset:2px;}
+  .spin{width:13px; height:13px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:rot .7s linear infinite; display:none;}
+  body.loading .spin{display:inline-block;}
+  @keyframes rot{to{transform:rotate(360deg)}}
+
+  .filters{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:24px;}
+  .filters .lbl{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:600; margin-right:2px;}
+  .ctrl{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:12.5px; color:var(--ink); font-family:inherit;}
+  .ctrl:hover{border-color:var(--muted);}
+
+  .channels{display:grid; gap:18px; grid-template-columns:repeat(3,1fr);}
+  @media(max-width:1040px){.channels{grid-template-columns:1fr;}}
+  .channel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; display:flex; flex-direction:column; box-shadow:0 1px 2px rgba(20,28,43,.04);}
+  .channel .head{padding:16px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; border-top:3px solid var(--accent);}
+  .channel .head h2{font-family:"Space Grotesk",sans-serif; font-size:18px; font-weight:600; margin:0; letter-spacing:-.01em;}
+  .channel .head .tag{font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;}
+  .conn{margin-left:auto; display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted);}
+
+  .body{padding:16px 18px 20px; display:flex; flex-direction:column; gap:14px; transition:opacity .2s;}
+  body.loading .body{opacity:.45;}
+  .tiles{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
+  .tile{background:var(--surface-2); border:1px solid var(--line); border-radius:11px; padding:13px 14px; position:relative;}
+  .tile .label{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:500;}
+  .tile .val{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:30px; line-height:1.1; margin-top:5px; letter-spacing:-.02em;}
+  .tile .val small{font-size:14px; color:var(--muted); font-weight:500;}
+  .tile.span2{grid-column:span 2;}
+  .tile .snap{position:absolute; top:11px; right:12px; font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:5px; padding:2px 5px;}
+  .missing{color:var(--muted)!important;}
+
+  .rate{display:flex; flex-direction:column; gap:8px;}
+  .rate-row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .rate-row .lab{font-size:12.5px; color:var(--muted);}
+  .rate-row .pct{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:15px;}
+  .bar{height:7px; border-radius:6px; background:var(--line); overflow:hidden;}
+  .bar > span{display:block; height:100%; border-radius:6px; transition:width .4s ease;}
+  .s-good{color:var(--good);} .s-warn{color:var(--warn);} .s-crit{color:var(--crit);}
+  .fill-good{background:var(--good);} .fill-warn{background:var(--warn);} .fill-crit{background:var(--crit);}
+
+  .log{margin-top:22px; font-size:12.5px; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:none;}
+  .log.show{display:block;}
+  .log b{color:var(--ink);}
+  .log ul{margin:6px 0 0; padding-left:18px;}
+  .note{margin-top:18px; font-size:12px; color:var(--muted); max-width:820px; line-height:1.6;}
+
+  /* settings modal */
+  .overlay{position:fixed; inset:0; background:rgba(16,22,35,.45); display:none; align-items:flex-start; justify-content:center; padding:40px 16px; overflow:auto; z-index:50;}
+  .overlay.show{display:flex;}
+  .modal{background:var(--surface); border:1px solid var(--line); border-radius:16px; width:100%; max-width:640px; box-shadow:0 20px 50px rgba(16,22,35,.25); overflow:hidden;}
+  .modal .mhead{padding:18px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between;}
+  .modal .mhead h3{margin:0; font-family:"Space Grotesk",sans-serif; font-size:18px; font-weight:600;}
+  .modal .mhead .x{border:none; background:none; font-size:22px; line-height:1; color:var(--muted); padding:2px 6px;}
+  .modal .mbody{padding:18px 22px; display:flex; flex-direction:column; gap:22px; max-height:64vh; overflow:auto;}
+  .sect h4{margin:0 0 3px; font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted);}
+  .sect .sdesc{font-size:12px; color:var(--muted); margin:0 0 12px;}
+  .crow{display:grid; grid-template-columns:108px 1fr 1.6fr; gap:8px; align-items:center; margin-bottom:8px;}
+  .crow .cname{font-size:13px; font-weight:600;}
+  @media(max-width:560px){ .crow{grid-template-columns:1fr; gap:5px; margin-bottom:14px;} .crow .cname{margin-bottom:2px;} }
+  .fin{width:100%; border:1px solid var(--line); border-radius:9px; padding:8px 10px; font-size:13px; font-family:inherit; color:var(--ink); background:var(--surface);}
+  .fin:focus-visible{outline:2px solid var(--euphoria); outline-offset:1px;}
+  .finhead{display:grid; grid-template-columns:108px 1fr 1.6fr; gap:8px; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px;}
+  @media(max-width:560px){ .finhead{display:none;} }
+  .thgrid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;}
+  @media(max-width:560px){ .thgrid{grid-template-columns:1fr;} }
+  .thcol .tht{font-size:12.5px; font-weight:600; margin-bottom:6px;}
+  .thcol .pair{display:flex; gap:8px;}
+  .thcol .pair label{font-size:11px; color:var(--muted); display:flex; flex-direction:column; gap:3px; flex:1;}
+  .thcol .pair input{width:100%; border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:13px; font-family:inherit;}
+  .secnote{font-size:12px; color:var(--muted); background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; line-height:1.5;}
+  .secnote b{color:var(--ink);}
+  .mfoot{padding:14px 22px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; align-items:center;}
+  .ferr{margin-right:auto; color:var(--crit); font-size:12.5px; display:none;}
+  .ferr.show{display:block;}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important;}}
+</style>
+</head>
+<body class="loading">
+
+  <header class="topbar">
+    <div class="brand">
+      <h1>YUMBI Support Operations</h1>
+      <div class="sub">Showing <b id="rangeLabel">today</b> &middot; <span id="rangeDates"></span></div>
+    </div>
+    <div class="meta">
+      <div class="stamp"><span class="dot live"></span>Auto-updated</div>
+      <div class="stamp">Updated <b id="updated">&mdash;</b></div>
+      <button class="btn" id="settingsBtn">Settings</button>
+      <button class="btn primary" id="refreshBtn"><span class="spin"></span><span id="refreshTxt">Refresh</span></button>
+    </div>
+  </header>
+
+  <div class="filters">
+    <span class="lbl">Date range</span>
+    <select class="ctrl" id="rangeSel" aria-label="Date range">
+      <option value="today">Today</option>
+      <option value="yesterday">Yesterday</option>
+      <option value="last7">Last 7 days</option>
+      <option value="last30">Last 30 days</option>
+      <option value="month">This month</option>
+    </select>
+  </div>
+
+  <main class="channels" id="channels"></main>
+
+  <div class="log" id="log"></div>
+
+  <p class="note">
+    Figures are refreshed by a scheduled GitHub Action and this page re-reads them every 5 minutes (or press Refresh).
+    Volume, rating and time figures total or average across the selected range.
+    Figures marked <b>now</b> &mdash; backlog counts and agents logged on &mdash; are the current position.
+    Only aggregate figures are published; no customer or agent personal details are imported.
+    <span id="thNote"></span>
+  </p>
+
+  <!-- Settings modal -->
+  <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <div class="modal">
+      <div class="mhead"><h3 id="setTitle">Dashboard settings</h3><button class="x" id="closeX" aria-label="Close">&times;</button></div>
+      <div class="mbody">
+
+        <div class="sect">
+          <h4>Status thresholds</h4>
+          <p class="sdesc">Where each metric turns green / amber / red.</p>
+          <div class="thgrid">
+            <div class="thcol"><div class="tht">Answer rate (%)</div><div class="pair">
+              <label>Good &ge;<input type="number" id="thAnsGood"></label>
+              <label>Watch &ge;<input type="number" id="thAnsWatch"></label>
+            </div></div>
+            <div class="thcol"><div class="tht">Abandon rate (%)</div><div class="pair">
+              <label>Good &le;<input type="number" id="thAbnGood"></label>
+              <label>Watch &le;<input type="number" id="thAbnWatch"></label>
+            </div></div>
+            <div class="thcol"><div class="tht">CSAT (/5)</div><div class="pair">
+              <label>Good &ge;<input type="number" step="0.1" id="thCsatGood"></label>
+              <label>Watch &ge;<input type="number" step="0.1" id="thCsatWatch"></label>
+            </div></div>
+          </div>
+        </div>
+
+        <div class="secnote">
+          <b>No secrets live on this page.</b> These thresholds are saved in your browser only.
+          Logins for Zoho Desk, LiveChat and Euphoria are stored as encrypted GitHub Secrets and used only by the scheduled GitHub Action, which publishes totals to data.json.
+        </div>
+
+      </div>
+      <div class="mfoot">
+        <span class="ferr" id="setErr"></span>
+        <button class="btn" id="cancelSet">Cancel</button>
+        <button class="btn primary" id="saveSet">Save settings</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const DATA_URL = "data.json";
+const TH_KEY = "yumbi-support-thresholds";
+const RELOAD_MS = 5*60*1000; // re-read data.json every 5 minutes
+const DEFAULT_TH = { ansGood:90, ansWatch:80, abnGood:5, abnWatch:10, csatGood:4.5, csatWatch:4.0 };
+let CONFIG = { th: Object.assign({}, DEFAULT_TH) };
+
+let allData = null;   // the whole data.json
+let data = null;      // the selected range
+let currentRange = null;
+let inFlight = false;
+
+function prettyDate(s){ const d=new Date(s+"T00:00:00"); return isNaN(d)? s : d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); }
+function rangeDates(r){ return r.from===r.to ? prettyDate(r.from) : prettyDate(r.from)+" \u2013 "+prettyDate(r.to); }
+
+/* ---- status helpers (read thresholds live from CONFIG) ---- */
+const pct=(n,d)=> d>0 ? n/d*100 : 0;
+const sAnswer=p=> p>=CONFIG.th.ansGood?"good":p>=CONFIG.th.ansWatch?"warn":"crit";
+const sAbandon=p=> p<=CONFIG.th.abnGood?"good":p<=CONFIG.th.abnWatch?"warn":"crit";
+const sCsat=c=> c>=CONFIG.th.csatGood?"good":c>=CONFIG.th.csatWatch?"warn":"crit";
+const clamp=v=>Math.max(0,Math.min(100,v));
+const has=v=> v!==null && v!==undefined && !Number.isNaN(v);
+
+function connState(obj, keys){
+  const present = keys.filter(k=>has(obj&&obj[k])).length;
+  if(present===0) return {cls:"crit", txt:"Unavailable"};
+  if(present<keys.length) return {cls:"warn", txt:"Partial"};
+  return {cls:"live", txt:"Connected"};
+}
+
+function render(){
+  const el=document.getElementById("channels");
+  const e=(data&&data.euphoria)||{}, c=(data&&data.chat)||{}, z=(data&&data.zoho)||{};
+  const snap = '<span class="snap">now</span>';
+
+  const eState=connState(e,["received","answered","abandoned","agents"]);
+  const cState=connState(c,["received","handled","csat"]);
+  const zState=connState(z,["unassigned","open","config","thirdparty","handled_total","avg_first_response","avg_resolution"]);
+
+  const ansP=pct(e.answered,e.received), abnP=pct(e.abandoned,e.received), handP=pct(c.handled,c.received);
+
+  el.innerHTML =
+  '<section class="channel" style="--accent:var(--euphoria)">'
+  +'<div class="head" style="border-top-color:var(--euphoria)"><h2>Euphoria</h2><span class="tag">Voice</span>'
+  +'<span class="conn"><span class="dot '+eState.cls+'"></span>'+eState.txt+'</span></div>'
+  +'<div class="body"><div class="tiles">'
+  + tile("Calls received",e.received) + tile("Calls answered",e.answered)
+  + tile("Calls abandoned",e.abandoned) + tile("Agents logged on",e.agents,"","",snap)
+  +'</div><div class="rate">'
+  + ((has(e.answered)&&has(e.received))?rateRow("Answer rate",ansP,sAnswer(ansP)):"")
+  + ((has(e.abandoned)&&has(e.received))?rateRow("Abandon rate",abnP,sAbandon(abnP)):"")
+  +'</div></div></section>'
+
+  +'<section class="channel" style="--accent:var(--chat)">'
+  +'<div class="head" style="border-top-color:var(--chat)"><h2>Live Chat</h2><span class="tag">Messaging</span>'
+  +'<span class="conn"><span class="dot '+cState.cls+'"></span>'+cState.txt+'</span></div>'
+  +'<div class="body"><div class="tiles">'
+  + tile("Chats received",c.received) + tile("Handled by agent",c.handled)
+  + tile("CSAT rating",c.csat,"/ 5")
+  +'<div class="tile"><div class="label">CSAT status</div><div class="val '+(has(c.csat)?"s-"+sCsat(c.csat):"missing")+'" style="font-size:22px">'
+  + (has(c.csat)?(sCsat(c.csat)==="good"?"Healthy":sCsat(c.csat)==="warn"?"Watch":"Low"):"&mdash;") +'</div></div>'
+  +'</div><div class="rate">'
+  + ((has(c.handled)&&has(c.received))?rateRow("Handled rate",handP,sAnswer(handP)):"")
+  +'</div></div></section>'
+
+  +'<section class="channel" style="--accent:var(--zoho)">'
+  +'<div class="head" style="border-top-color:var(--zoho)"><h2>Zoho</h2><span class="tag">Tickets</span>'
+  +'<span class="conn"><span class="dot '+zState.cls+'"></span>'+zState.txt+'</span></div>'
+  +'<div class="body"><div class="tiles">'
+  + tile("Unassigned",z.unassigned,"","",snap) + tile("Open",z.open,"","",snap)
+  + tile("Waiting on config",z.config,"","",snap) + tile("Waiting on 3rd party",z.thirdparty,"","",snap)
+  + tile("Handled (team)",z.handled_total,"","span2")
+  + tile("Avg first response",z.avg_first_response,"h") + tile("Avg resolution",z.avg_resolution,"h")
+  +'</div></div></section>';
+
+  document.getElementById("updated").innerHTML = (data&&data.as_of) ? fmt(data.as_of) : "&mdash;";
+  renderLog();
+}
+
+function tile(label,v,suffix,extra,badge){
+  suffix=suffix||""; extra=extra||""; badge=badge||"";
+  const ok=has(v);
+  return '<div class="tile '+extra+'">'+badge+'<div class="label">'+label+'</div>'
+    +'<div class="val num '+(ok?"":"missing")+'">'+(ok?v:"&mdash;")
+    +((ok&&suffix)?'<small> '+suffix+'</small>':"")+'</div></div>';
+}
+function rateRow(label,p,s){
+  return '<div><div class="rate-row"><span class="lab">'+label+'</span><span class="pct s-'+s+'">'+p.toFixed(1)+'%</span></div>'
+    +'<div class="bar"><span class="fill-'+s+'" style="width:'+clamp(p)+'%"></span></div></div>';
+}
+function renderLog(){
+  const log=document.getElementById("log");
+  const errs=(data&&data.errors)||[];
+  if(!errs.length){ log.classList.remove("show"); return; }
+  log.classList.add("show");
+  log.innerHTML='<b>Could not pull everything this run:</b><ul>'+errs.map(function(x){return '<li>'+escapeHtml(x)+'</li>';}).join("")+'</ul>';
+}
+function renderThNote(){
+  const t=CONFIG.th;
+  document.getElementById("thNote").innerHTML =
+    "Thresholds (configurable in Settings): answer rate good &ge; "+t.ansGood+"% / watch &ge; "+t.ansWatch
+    +"%; abandon rate good &le; "+t.abnGood+"% / watch &le; "+t.abnWatch
+    +"%; CSAT good &ge; "+t.csatGood+" / watch &ge; "+t.csatWatch+".";
+}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
+function fmt(s){ const d=new Date(s); return isNaN(d)? escapeHtml(s) : d.toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); }
+
+/* ---- load data.json (written by GitHub Actions) ---- */
+async function loadData(){
+  if(inFlight) return;
+  inFlight=true;
+  document.body.classList.add("loading");
+  document.getElementById("refreshBtn").disabled=true;
+  document.getElementById("refreshTxt").textContent="Loading...";
+  try{
+    const res = await fetch(DATA_URL+"?t="+Date.now(), {cache:"no-store"});
+    if(res.status===404) throw new Error("No data yet. Run the 'Update dashboard data' workflow in GitHub Actions.");
+    if(!res.ok) throw new Error("Could not read data.json ("+res.status+")");
+    allData = await res.json();
+  }catch(err){
+    allData = allData || {ranges:{}};
+    allData._loadError = err.message;
+  }finally{
+    inFlight=false;
+    document.body.classList.remove("loading");
+    document.getElementById("refreshBtn").disabled=false;
+    document.getElementById("refreshTxt").textContent="Refresh";
+    showRange(document.getElementById("rangeSel").value);
+  }
+}
+
+function showRange(key){
+  const r = (allData && allData.ranges && allData.ranges[key]) || null;
+  currentRange = r || {key:key, from:"", to:"", label:key};
+  document.getElementById("rangeLabel").textContent = r ? r.label : key;
+  document.getElementById("rangeDates").textContent = r ? rangeDates(r) : "";
+  data = r ? JSON.parse(JSON.stringify(r)) : {errors:[]};
+  data.errors = data.errors || [];
+  if(allData && allData._loadError) data.errors.unshift(allData._loadError);
+  render();
+}
+
+/* ---- settings (thresholds only, saved in this browser) ---- */
+function loadConfig(){
+  try{ const raw=localStorage.getItem(TH_KEY); if(raw) CONFIG.th=Object.assign({}, DEFAULT_TH, JSON.parse(raw)); }catch(e){}
+}
+function persistConfig(){ try{ localStorage.setItem(TH_KEY, JSON.stringify(CONFIG.th)); }catch(e){} }
+
+function fillSettings(){
+  const t=CONFIG.th;
+  document.getElementById("thAnsGood").value=t.ansGood; document.getElementById("thAnsWatch").value=t.ansWatch;
+  document.getElementById("thAbnGood").value=t.abnGood; document.getElementById("thAbnWatch").value=t.abnWatch;
+  document.getElementById("thCsatGood").value=t.csatGood; document.getElementById("thCsatWatch").value=t.csatWatch;
+}
+function openSettings(){ fillSettings(); document.getElementById("overlay").classList.add("show"); }
+function closeSettings(){ document.getElementById("overlay").classList.remove("show"); }
+function readNum(id, fb){ const v=parseFloat(document.getElementById(id).value); return isNaN(v)?fb:v; }
+
+function saveSettings(){
+  CONFIG.th={
+    ansGood:readNum("thAnsGood",90), ansWatch:readNum("thAnsWatch",80),
+    abnGood:readNum("thAbnGood",5),  abnWatch:readNum("thAbnWatch",10),
+    csatGood:readNum("thCsatGood",4.5), csatWatch:readNum("thCsatWatch",4.0)
+  };
+  persistConfig();
+  renderThNote();
+  closeSettings();
+  render();
+}
+
+/* ---- wire up ---- */
+function init(){
+  loadConfig();
+  renderThNote();
+  const sel=document.getElementById("rangeSel");
+  sel.onchange=function(){ showRange(sel.value); };
+  document.getElementById("refreshBtn").onclick=loadData;
+  document.getElementById("settingsBtn").onclick=openSettings;
+  document.getElementById("closeX").onclick=closeSettings;
+  document.getElementById("cancelSet").onclick=closeSettings;
+  document.getElementById("saveSet").onclick=saveSettings;
+  document.getElementById("overlay").addEventListener("click", function(ev){ if(ev.target===this) closeSettings(); });
+  document.addEventListener("keydown", function(ev){ if(ev.key==="Escape") closeSettings(); });
+  loadData();
+  setInterval(loadData, RELOAD_MS);
+}
+
+init();
+</script>
+</body>
+</html>
