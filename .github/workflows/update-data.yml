@@ -1,0 +1,45 @@
+name: Update dashboard data
+
+on:
+  schedule:
+    - cron: "*/15 4-17 * * *"   # every 15 minutes, roughly 06:00-19:45 South African time
+  workflow_dispatch:             # adds the "Run workflow" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dashboard-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Pull support totals
+        env:
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+          ZOHO_ORG_ID: ${{ secrets.ZOHO_ORG_ID }}
+          LIVECHAT_ACCOUNT_ID: ${{ secrets.LIVECHAT_ACCOUNT_ID }}
+          LIVECHAT_TOKEN: ${{ secrets.LIVECHAT_TOKEN }}
+          EUPHORIA_API_KEY: ${{ secrets.EUPHORIA_API_KEY }}
+          ZOHO_DC: ${{ vars.ZOHO_DC }}
+          ZOHO_DEPARTMENT_ID: ${{ vars.ZOHO_DEPARTMENT_ID }}
+          ZOHO_STATUS_CONFIG: ${{ vars.ZOHO_STATUS_CONFIG }}
+          ZOHO_STATUS_THIRDPARTY: ${{ vars.ZOHO_STATUS_THIRDPARTY }}
+        run: node scripts/fetch-data.js
+
+      - name: Save data.json
+        run: |
+          git config user.name "dashboard-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git diff --staged --quiet || (git commit -m "Update dashboard data" && git push)
