@@ -1,0 +1,160 @@
+{
+  "generated_at": "2026-10-01T19:29:08.286Z",
+  "ranges": {
+    "today": {
+      "from": "2026-10-01",
+      "to": "2026-10-01",
+      "label": "today",
+      "euphoria": {
+        "received": null,
+        "answered": null,
+        "abandoned": null,
+        "agents": null
+      },
+      "chat": {
+        "received": 472,
+        "handled": 472,
+        "csat": 0.95
+      },
+      "zoho": {
+        "unassigned": null,
+        "handled_total": null,
+        "avg_first_response": null,
+        "avg_resolution": null,
+        "open": null,
+        "config": null,
+        "thirdparty": null
+      },
+      "as_of": "2026-10-01T19:29:08.286Z",
+      "errors": [
+        "Euphoria: waiting on a totals-only API call from Euphoria",
+        "Zoho: keys not set up yet",
+        "Zoho: unassigned, handled and response/resolution times are the next step to add"
+      ]
+    },
+    "yesterday": {
+      "from": "2026-09-30",
+      "to": "2026-09-30",
+      "label": "yesterday",
+      "euphoria": {
+        "received": null,
+        "answered": null,
+        "abandoned": null,
+        "agents": null
+      },
+      "chat": {
+        "received": 1098,
+        "handled": 1098,
+        "csat": 1.21
+      },
+      "zoho": {
+        "unassigned": null,
+        "handled_total": null,
+        "avg_first_response": null,
+        "avg_resolution": null,
+        "open": null,
+        "config": null,
+        "thirdparty": null
+      },
+      "as_of": "2026-10-01T19:29:08.286Z",
+      "errors": [
+        "Euphoria: waiting on a totals-only API call from Euphoria",
+        "Zoho: keys not set up yet",
+        "Zoho: unassigned, handled and response/resolution times are the next step to add"
+      ]
+    },
+    "last7": {
+      "from": "2026-09-25",
+      "to": "2026-10-01",
+      "label": "last 7 days",
+      "euphoria": {
+        "received": null,
+        "answered": null,
+        "abandoned": null,
+        "agents": null
+      },
+      "chat": {
+        "received": 3983,
+        "handled": 3983,
+        "csat": 1.38
+      },
+      "zoho": {
+        "unassigned": null,
+        "handled_total": null,
+        "avg_first_response": null,
+        "avg_resolution": null,
+        "open": null,
+        "config": null,
+        "thirdparty": null
+      },
+      "as_of": "2026-10-01T19:29:08.286Z",
+      "errors": [
+        "Euphoria: waiting on a totals-only API call from Euphoria",
+        "Zoho: keys not set up yet",
+        "Zoho: unassigned, handled and response/resolution times are the next step to add"
+      ]
+    },
+    "last30": {
+      "from": "2026-09-02",
+      "to": "2026-10-01",
+      "label": "last 30 days",
+      "euphoria": {
+        "received": null,
+        "answered": null,
+        "abandoned": null,
+        "agents": null
+      },
+      "chat": {
+        "received": 11439,
+        "handled": 11438,
+        "csat": 1.52
+      },
+      "zoho": {
+        "unassigned": null,
+        "handled_total": null,
+        "avg_first_response": null,
+        "avg_resolution": null,
+        "open": null,
+        "config": null,
+        "thirdparty": null
+      },
+      "as_of": "2026-10-01T19:29:08.286Z",
+      "errors": [
+        "Euphoria: waiting on a totals-only API call from Euphoria",
+        "Zoho: keys not set up yet",
+        "Zoho: unassigned, handled and response/resolution times are the next step to add"
+      ]
+    },
+    "month": {
+      "from": "2026-10-01",
+      "to": "2026-10-01",
+      "label": "this month",
+      "euphoria": {
+        "received": null,
+        "answered": null,
+        "abandoned": null,
+        "agents": null
+      },
+      "chat": {
+        "received": 472,
+        "handled": 472,
+        "csat": 0.95
+      },
+      "zoho": {
+        "unassigned": null,
+        "handled_total": null,
+        "avg_first_response": null,
+        "avg_resolution": null,
+        "open": null,
+        "config": null,
+        "thirdparty": null
+      },
+      "as_of": "2026-10-01T19:29:08.286Z",
+      "errors": [
+        "Euphoria: waiting on a totals-only API call from Euphoria",
+        "Zoho: keys not set up yet",
+        "Zoho: unassigned, handled and response/resolution times are the next step to add"
+      ]
+    }
+  }
+}
