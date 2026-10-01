@@ -62,6 +62,9 @@
 
   .body{padding:16px 18px 20px; display:flex; flex-direction:column; gap:14px; transition:opacity .2s;}
   body.loading .body{opacity:.45;}
+  #customRange{display:none; gap:6px; align-items:center; flex-wrap:wrap;}
+  #customRange.show{display:flex;}
+  #customRange .to{color:var(--muted); font-size:12px;}
   .tiles{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
   .tile{background:var(--surface-2); border:1px solid var(--line); border-radius:11px; padding:13px 14px; position:relative;}
   .tile .label{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:500;}
@@ -140,7 +143,14 @@
       <option value="last7">Last 7 days</option>
       <option value="last30">Last 30 days</option>
       <option value="month">This month</option>
+      <option value="custom">Custom&hellip;</option>
     </select>
+    <span id="customRange">
+      <input type="date" class="ctrl" id="fromDate" aria-label="From date">
+      <span class="to">to</span>
+      <input type="date" class="ctrl" id="toDate" aria-label="To date">
+      <button class="btn" id="applyCustom">Apply</button>
+    </span>
   </div>
 
   <main class="channels" id="channels"></main>
@@ -148,7 +158,7 @@
   <div class="log" id="log"></div>
 
   <p class="note">
-    Figures are refreshed by a scheduled GitHub Action and this page re-reads them every 5 minutes (or press Refresh).
+    Figures are refreshed by a scheduled GitHub Action and this page re-reads them every 5 minutes (or press Refresh). Custom dates can go back 90 days.
     Volume, rating and time figures total or average across the selected range.
     Figures marked <b>now</b> &mdash; backlog counts and agents logged on &mdash; are the current position.
     Only aggregate figures are published; no customer or agent personal details are imported.
@@ -230,10 +240,10 @@ function render(){
   const snap = '<span class="snap">now</span>';
 
   const eState=connState(e,["received","answered","abandoned","agents"]);
-  const cState=connState(c,["received","handled","csat"]);
+  const cState=connState(c,["received","bot","agent","bot_csat","agent_csat"]);
   const zState=connState(z,["unassigned","open","config","thirdparty","handled_total","avg_first_response","avg_resolution"]);
 
-  const ansP=pct(e.answered,e.received), abnP=pct(e.abandoned,e.received), handP=pct(c.handled,c.received);
+  const ansP=pct(e.answered,e.received), abnP=pct(e.abandoned,e.received);
 
   el.innerHTML =
   '<section class="channel" style="--accent:var(--euphoria)">'
@@ -251,12 +261,9 @@ function render(){
   +'<div class="head" style="border-top-color:var(--chat)"><h2>Live Chat</h2><span class="tag">Messaging</span>'
   +'<span class="conn"><span class="dot '+cState.cls+'"></span>'+cState.txt+'</span></div>'
   +'<div class="body"><div class="tiles">'
-  + tile("Chats received",c.received) + tile("Handled by agent",c.handled)
-  + tile("CSAT rating",c.csat,"/ 5")
-  +'<div class="tile"><div class="label">CSAT status</div><div class="val '+(has(c.csat)?"s-"+sCsat(c.csat):"missing")+'" style="font-size:22px">'
-  + (has(c.csat)?(sCsat(c.csat)==="good"?"Healthy":sCsat(c.csat)==="warn"?"Watch":"Low"):"&mdash;") +'</div></div>'
-  +'</div><div class="rate">'
-  + ((has(c.handled)&&has(c.received))?rateRow("Handled rate",handP,sAnswer(handP)):"")
+  + tile("Total chats",c.received,"","span2")
+  + tile("Handled by bot",c.bot,share(c.bot,c.received)) + tile("Handled by agent",c.agent,share(c.agent,c.received))
+  + csatTile("Bot CSAT",c.bot_csat) + csatTile("Agent CSAT",c.agent_csat)
   +'</div></div></section>'
 
   +'<section class="channel" style="--accent:var(--zoho)">'
@@ -280,6 +287,12 @@ function tile(label,v,suffix,extra,badge){
     +'<div class="val num '+(ok?"":"missing")+'">'+(ok?v:"&mdash;")
     +((ok&&suffix)?'<small> '+suffix+'</small>':"")+'</div></div>';
 }
+function share(n,total){ return (has(n)&&has(total)&&total>0) ? "("+Math.round(n/total*100)+"%)" : ""; }
+function csatTile(label,v){
+  const ok=has(v);
+  return '<div class="tile"><div class="label">'+label+'</div><div class="val num '+(ok?"s-"+sCsat(v):"missing")+'">'
+    +(ok?v.toFixed(2)+'<small> / 5</small>':"&mdash;")+'</div></div>';
+}
 function rateRow(label,p,s){
   return '<div><div class="rate-row"><span class="lab">'+label+'</span><span class="pct s-'+s+'">'+p.toFixed(1)+'%</span></div>'
     +'<div class="bar"><span class="fill-'+s+'" style="width:'+clamp(p)+'%"></span></div></div>';
@@ -301,6 +314,21 @@ function renderThNote(){
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
 function fmt(s){ const d=new Date(s); return isNaN(d)? escapeHtml(s) : d.toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); }
 
+/* ---- date helpers (South African time) ---- */
+const TZ="Africa/Johannesburg";
+function todayStr(){ return new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date()); }
+function addDays(ymd,n){ const d=new Date(ymd+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function presetRange(key){
+  const t=todayStr();
+  switch(key){
+    case "yesterday": return {key, from:addDays(t,-1), to:addDays(t,-1), label:"yesterday"};
+    case "last7":     return {key, from:addDays(t,-6), to:t, label:"last 7 days"};
+    case "last30":    return {key, from:addDays(t,-29), to:t, label:"last 30 days"};
+    case "month":     return {key, from:t.slice(0,8)+"01", to:t, label:"this month"};
+    default:          return {key:"today", from:t, to:t, label:"today"};
+  }
+}
+
 /* ---- load data.json (written by GitHub Actions) ---- */
 async function loadData(){
   if(inFlight) return;
@@ -313,26 +341,58 @@ async function loadData(){
     if(res.status===404) throw new Error("No data yet. Run the 'Update dashboard data' workflow in GitHub Actions.");
     if(!res.ok) throw new Error("Could not read data.json ("+res.status+")");
     allData = await res.json();
+    if(!allData.daily) throw new Error("data.json is in the old format. Run the 'Update dashboard data' workflow once.");
+    allData._loadError = null;
   }catch(err){
-    allData = allData || {ranges:{}};
+    allData = (allData && allData.daily) ? allData : {daily:{}, errors:{}};
     allData._loadError = err.message;
   }finally{
     inFlight=false;
     document.body.classList.remove("loading");
     document.getElementById("refreshBtn").disabled=false;
     document.getElementById("refreshTxt").textContent="Refresh";
-    showRange(document.getElementById("rangeSel").value);
+    setDateLimits();
+    showRange(currentRange || presetRange("today"));
   }
 }
 
-function showRange(key){
-  const r = (allData && allData.ranges && allData.ranges[key]) || null;
-  currentRange = r || {key:key, from:"", to:"", label:key};
-  document.getElementById("rangeLabel").textContent = r ? r.label : key;
-  document.getElementById("rangeDates").textContent = r ? rangeDates(r) : "";
-  data = r ? JSON.parse(JSON.stringify(r)) : {errors:[]};
-  data.errors = data.errors || [];
-  if(allData && allData._loadError) data.errors.unshift(allData._loadError);
+function setDateLimits(){
+  const h=(allData&&allData.history)||{};
+  ["fromDate","toDate"].forEach(function(id){
+    const el=document.getElementById(id);
+    if(h.from) el.min=h.from;
+    el.max=h.to||todayStr();
+  });
+}
+
+/* add up the daily figures for the chosen dates */
+function summarise(r){
+  const days=Object.keys(allData.daily||{}).filter(function(d){ return d>=r.from && d<=r.to; });
+  const t={total:0,bot:0,agent:0,bot_good:0,bot_bad:0,agent_good:0,agent_bad:0}, seen={};
+  days.forEach(function(d){
+    const c=(allData.daily[d]||{}).chat||{};
+    Object.keys(t).forEach(function(k){ if(has(c[k])){ t[k]+=c[k]; seen[k]=1; } });
+  });
+  const val=k=> seen[k] ? t[k] : null;
+  const csat=(g,b)=> (seen[g]&&(t[g]+t[b])>0) ? Math.round(t[g]/(t[g]+t[b])*500)/100 : null;
+  const errs=[].concat((allData.errors&&allData.errors.euphoria)||[], (allData.errors&&allData.errors.chat)||[], (allData.errors&&allData.errors.zoho)||[]);
+  const h=allData.history||{};
+  if(h.from && r.from<h.from) errs.unshift("Chat figures only go back to "+prettyDate(h.from)+", so earlier dates are not included.");
+  if(allData._loadError) errs.unshift(allData._loadError);
+  return {
+    euphoria:{received:null, answered:null, abandoned:null, agents:null},
+    chat:{received:val("total"), bot:val("bot"), agent:val("agent"), bot_csat:csat("bot_good","bot_bad"), agent_csat:csat("agent_good","agent_bad")},
+    zoho:Object.assign({unassigned:null, open:null, config:null, thirdparty:null, handled_total:null, avg_first_response:null, avg_resolution:null}, allData.zoho||{}),
+    as_of:allData.generated_at||null,
+    errors:errs
+  };
+}
+
+function showRange(r){
+  currentRange=r;
+  document.getElementById("rangeLabel").textContent=r.label;
+  document.getElementById("rangeDates").textContent=rangeDates(r);
+  data=summarise(r);
   render();
 }
 
@@ -369,7 +429,20 @@ function init(){
   loadConfig();
   renderThNote();
   const sel=document.getElementById("rangeSel");
-  sel.onchange=function(){ showRange(sel.value); };
+  const custom=document.getElementById("customRange");
+  const fromI=document.getElementById("fromDate"), toI=document.getElementById("toDate");
+  fromI.value=addDays(todayStr(),-6); toI.value=todayStr();
+  sel.onchange=function(){
+    if(sel.value==="custom"){ custom.classList.add("show"); return; }
+    custom.classList.remove("show");
+    showRange(presetRange(sel.value));
+  };
+  document.getElementById("applyCustom").onclick=function(){
+    let f=fromI.value, t=toI.value;
+    if(!f||!t) return;
+    if(f>t){ const x=f; f=t; t=x; fromI.value=f; toI.value=t; }
+    showRange({key:"custom", from:f, to:t, label:"custom range"});
+  };
   document.getElementById("refreshBtn").onclick=loadData;
   document.getElementById("settingsBtn").onclick=openSettings;
   document.getElementById("closeX").onclick=closeSettings;
@@ -378,7 +451,10 @@ function init(){
   document.getElementById("overlay").addEventListener("click", function(ev){ if(ev.target===this) closeSettings(); });
   document.addEventListener("keydown", function(ev){ if(ev.key==="Escape") closeSettings(); });
   loadData();
-  setInterval(loadData, RELOAD_MS);
+  setInterval(function(){
+    if(currentRange && currentRange.key!=="custom") currentRange=presetRange(currentRange.key);
+    loadData();
+  }, RELOAD_MS);
 }
 
 init();
