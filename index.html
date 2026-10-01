@@ -261,7 +261,8 @@ function render(){
   +'<div class="head" style="border-top-color:var(--chat)"><h2>Live Chat</h2><span class="tag">Messaging</span>'
   +'<span class="conn"><span class="dot '+cState.cls+'"></span>'+cState.txt+'</span></div>'
   +'<div class="body"><div class="tiles">'
-  + tile("Total chats",c.received,"","span2")
+  + tile("Total chats",c.received)
+  + csatTile("Overall CSAT",c.all_csat)
   + tile("Handled by bot",c.bot,share(c.bot,c.received)) + tile("Handled by agent",c.agent,share(c.agent,c.received))
   + csatTile("Bot CSAT",c.bot_csat) + csatTile("Agent CSAT",c.agent_csat)
   +'</div></div></section>'
@@ -368,7 +369,7 @@ function setDateLimits(){
 /* add up the daily figures for the chosen dates */
 function summarise(r){
   const days=Object.keys(allData.daily||{}).filter(function(d){ return d>=r.from && d<=r.to; });
-  const t={total:0,bot:0,agent:0,bot_good:0,bot_bad:0,agent_good:0,agent_bad:0}, seen={};
+  const t={total:0,bot:0,agent:0,bot_good:0,bot_bad:0,agent_good:0,agent_bad:0,all_good:0,all_bad:0}, seen={};
   days.forEach(function(d){
     const c=(allData.daily[d]||{}).chat||{};
     Object.keys(t).forEach(function(k){ if(has(c[k])){ t[k]+=c[k]; seen[k]=1; } });
@@ -381,7 +382,7 @@ function summarise(r){
   if(allData._loadError) errs.unshift(allData._loadError);
   return {
     euphoria:{received:null, answered:null, abandoned:null, agents:null},
-    chat:{received:val("total"), bot:val("bot"), agent:val("agent"), bot_csat:csat("bot_good","bot_bad"), agent_csat:csat("agent_good","agent_bad")},
+    chat:{received:val("total"), bot:val("bot"), agent:val("agent"), bot_csat:csat("bot_good","bot_bad"), agent_csat:csat("agent_good","agent_bad"), all_csat:csat("all_good","all_bad")},
     zoho:Object.assign({unassigned:null, open:null, config:null, thirdparty:null, handled_total:null, avg_first_response:null, avg_resolution:null}, allData.zoho||{}),
     as_of:allData.generated_at||null,
     errors:errs
