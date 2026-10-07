@@ -183,9 +183,9 @@
               <label>Good &le;<input type="number" id="thAbnGood"></label>
               <label>Watch &le;<input type="number" id="thAbnWatch"></label>
             </div></div>
-            <div class="thcol"><div class="tht">CSAT (/5)</div><div class="pair">
-              <label>Good &ge;<input type="number" step="0.1" id="thCsatGood"></label>
-              <label>Watch &ge;<input type="number" step="0.1" id="thCsatWatch"></label>
+            <div class="thcol"><div class="tht">CSAT (% good)</div><div class="pair">
+              <label>Good &ge;<input type="number" step="1" id="thCsatGood"></label>
+              <label>Watch &ge;<input type="number" step="1" id="thCsatWatch"></label>
             </div></div>
           </div>
         </div>
@@ -208,7 +208,7 @@
 const DATA_URL = "data.json";
 const TH_KEY = "yumbi-support-thresholds";
 const RELOAD_MS = 5*60*1000; // re-read data.json every 5 minutes
-const DEFAULT_TH = { ansGood:90, ansWatch:80, abnGood:5, abnWatch:10, csatGood:4.5, csatWatch:4.0 };
+const DEFAULT_TH = { ansGood:90, ansWatch:80, abnGood:5, abnWatch:10, csatGood:85, csatWatch:75 };
 let CONFIG = { th: Object.assign({}, DEFAULT_TH) };
 
 let allData = null;   // the whole data.json
@@ -292,7 +292,7 @@ function share(n,total){ return (has(n)&&has(total)&&total>0) ? "("+Math.round(n
 function csatTile(label,v){
   const ok=has(v);
   return '<div class="tile"><div class="label">'+label+'</div><div class="val num '+(ok?"s-"+sCsat(v):"missing")+'">'
-    +(ok?v.toFixed(2)+'<small> / 5</small>':"&mdash;")+'</div></div>';
+    +(ok?Math.round(v)+'<small>%</small>':"&mdash;")+'</div></div>';
 }
 function rateRow(label,p,s){
   return '<div><div class="rate-row"><span class="lab">'+label+'</span><span class="pct s-'+s+'">'+p.toFixed(1)+'%</span></div>'
@@ -310,7 +310,7 @@ function renderThNote(){
   document.getElementById("thNote").innerHTML =
     "Thresholds (configurable in Settings): answer rate good &ge; "+t.ansGood+"% / watch &ge; "+t.ansWatch
     +"%; abandon rate good &le; "+t.abnGood+"% / watch &le; "+t.abnWatch
-    +"%; CSAT good &ge; "+t.csatGood+" / watch &ge; "+t.csatWatch+".";
+    +"%; CSAT good &ge; "+t.csatGood+"% / watch &ge; "+t.csatWatch+"%.";
 }
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m];});}
 function fmt(s){ const d=new Date(s); return isNaN(d)? escapeHtml(s) : d.toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); }
@@ -375,7 +375,7 @@ function summarise(r){
     Object.keys(t).forEach(function(k){ if(has(c[k])){ t[k]+=c[k]; seen[k]=1; } });
   });
   const val=k=> seen[k] ? t[k] : null;
-  const csat=(g,b)=> (seen[g]&&(t[g]+t[b])>0) ? Math.round(t[g]/(t[g]+t[b])*500)/100 : null;
+  const csat=(g,b)=> (seen[g]&&(t[g]+t[b])>0) ? Math.round(t[g]/(t[g]+t[b])*1000)/10 : null;
   const errs=[].concat((allData.errors&&allData.errors.euphoria)||[], (allData.errors&&allData.errors.chat)||[], (allData.errors&&allData.errors.zoho)||[]);
   const h=allData.history||{};
   if(h.from && r.from<h.from) errs.unshift("Chat figures only go back to "+prettyDate(h.from)+", so earlier dates are not included.");
@@ -399,7 +399,8 @@ function showRange(r){
 
 /* ---- settings (thresholds only, saved in this browser) ---- */
 function loadConfig(){
-  try{ const raw=localStorage.getItem(TH_KEY); if(raw) CONFIG.th=Object.assign({}, DEFAULT_TH, JSON.parse(raw)); }catch(e){}
+  try{ const raw=localStorage.getItem(TH_KEY); if(raw) CONFIG.th=Object.assign({}, DEFAULT_TH, JSON.parse(raw));
+    if(CONFIG.th.csatGood<=5){ CONFIG.th.csatGood=DEFAULT_TH.csatGood; CONFIG.th.csatWatch=DEFAULT_TH.csatWatch; } }catch(e){}
 }
 function persistConfig(){ try{ localStorage.setItem(TH_KEY, JSON.stringify(CONFIG.th)); }catch(e){} }
 
@@ -417,7 +418,7 @@ function saveSettings(){
   CONFIG.th={
     ansGood:readNum("thAnsGood",90), ansWatch:readNum("thAnsWatch",80),
     abnGood:readNum("thAbnGood",5),  abnWatch:readNum("thAbnWatch",10),
-    csatGood:readNum("thCsatGood",4.5), csatWatch:readNum("thCsatWatch",4.0)
+    csatGood:readNum("thCsatGood",85), csatWatch:readNum("thCsatWatch",75)
   };
   persistConfig();
   renderThNote();
