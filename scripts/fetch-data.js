@@ -35,10 +35,9 @@ function addDays(ymd, n) {
 const HISTORY_DAYS = Math.max(1, Math.min(365, Number(env("HISTORY_DAYS", "90")) || 90));
 
 /* ---------- LiveChat (Reports API v3.6), one figure per day ---------- */
-// Bot vs agent is split by LiveChat GROUP (group IDs and names only, never
-// agent names or emails). Set the variable LIVECHAT_AGENT_GROUP_IDS to the
-// group(s) your people work in. Chats in those groups count as "Handled by agent";
-// everything else counts as "Handled by bot".
+// Bot vs agent is split by LiveChat TAG (tag names only, never agent names or
+// emails). Set the variable LIVECHAT_AGENT_TAGS to the tag(s) that mark chats a
+// person handled. Those count as "Handled by agent"; everything else as "Handled by bot".
 // Returns { "YYYY-MM-DD": { total, bot, agent, bot_good, bot_bad, agent_good, agent_bad } }
 async function liveChatDaily(from, to, errors) {
   const acc = env("LIVECHAT_ACCOUNT_ID"), tok = env("LIVECHAT_TOKEN");
@@ -95,9 +94,28 @@ async function liveChatDaily(from, to, errors) {
     }
   } catch (e) {}
 
+  // Same helper for tags: tag names and chat counts only (last 30 days)
+  try {
+    const res = await fetch("https://api.livechatinc.com/v3.6/reports/tags/chat_usage", {
+      method: "POST", headers,
+      body: JSON.stringify({ timezone: TZ, filters: { from: addDays(to, -29) + "T00:00:00" + TZ_OFFSET, to: to + "T23:59:59" + TZ_OFFSET } })
+    });
+    if (res.ok) {
+      const j = await res.json();
+      console.log("LiveChat tags, chats in the last 30 days:");
+      const list = Object.entries((j && j.records) || {}).sort((x, y) => y[1] - x[1]);
+      if (!list.length) console.log("  (no tagged chats)");
+      for (const [tag, n] of list) console.log("  " + tag + ": " + n + " chats");
+    } else console.log("LiveChat tags: could not list (responded " + res.status + ")");
+  } catch (e) {}
+
   const groupIds = (env("LIVECHAT_AGENT_GROUP_IDS", "") || "").split(",").map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
-  const agentFilter = groupIds.length ? { groups: { values: groupIds } } : null;
-  if (!agentFilter) errors.push("LiveChat: bot and agent figures need the LIVECHAT_AGENT_GROUP_IDS setting (see the group list in the GitHub Actions log)");
+  const agentTags = (env("LIVECHAT_AGENT_TAGS", "") || "").split(",").map(x => x.trim()).filter(Boolean);
+  // A chat counts as "handled by agent" if it carries one of the agent tags
+  // (or, as a fallback, sits in one of the agent groups)
+  const agentFilter = agentTags.length ? { tags: { values: agentTags } }
+                    : groupIds.length ? { groups: { values: groupIds } } : null;
+  if (!agentFilter) errors.push("LiveChat: bot and agent figures need the LIVECHAT_AGENT_TAGS setting (see the tag list in the GitHub Actions log)");
 
   const all          = await report("total_chats", null, "total chats");
   const allRatings   = await report("ratings", null, "ratings");
