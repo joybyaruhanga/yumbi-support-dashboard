@@ -110,7 +110,7 @@ async function liveChatDaily(from, to, errors) {
   } catch (e) {}
 
   const groupIds = (env("LIVECHAT_AGENT_GROUP_IDS", "") || "").split(",").map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
-  const agentTags = (env("LIVECHAT_AGENT_TAGS", "") || "").split(",").map(x => x.trim()).filter(Boolean);
+  const agentTags = (env("LIVECHAT_AGENT_TAGS", "chatbot-transfer") || "").split(",").map(x => x.trim()).filter(Boolean);
   // A chat counts as "handled by agent" if it carries one of the agent tags
   // (or, as a fallback, sits in one of the agent groups)
   const agentFilter = agentTags.length ? { tags: { values: agentTags } }
