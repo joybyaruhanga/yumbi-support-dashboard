@@ -157,10 +157,12 @@ async function zohoSnapshot() {
   }), { method: "POST" }, "Zoho login");
   if (!login.access_token) throw new SourceError("Zoho login: no access granted - check the refresh token and ZOHO_DC");
 
+  const authHeaders = { Authorization: "Zoho-oauthtoken " + login.access_token, orgId: org };
+
   const params = new URLSearchParams({ field: "statusType,status" });
   if (env("ZOHO_DEPARTMENT_ID")) params.set("departmentId", env("ZOHO_DEPARTMENT_ID"));
   const counts = await call("https://desk.zoho." + dc + "/api/v1/ticketsCountByFieldValues?" + params, {
-    headers: { Authorization: "Zoho-oauthtoken " + login.access_token, orgId: org }
+    headers: authHeaders
   }, "Zoho");
 
   const countOf = (field, name) => {
@@ -168,11 +170,31 @@ async function zohoSnapshot() {
     const hit = list.find(x => String(x.value || "").toLowerCase() === name.toLowerCase());
     return hit ? num(hit.count) : 0;
   };
-  return {
+
+  // Unassigned backlog, via the COUNT-only endpoint (returns a single number,
+  // never a ticket list) so the no-lists privacy rule still holds. Isolated in
+  // its own try/catch so a hiccup here never blanks the other three counts.
+  let unassigned = null;
+  try {
+    const uParams = new URLSearchParams({ assignee: "Unassigned" });
+    if (env("ZOHO_DEPARTMENT_ID")) uParams.set("departmentId", env("ZOHO_DEPARTMENT_ID"));
+    const u = await call("https://desk.zoho." + dc + "/api/v1/ticketsCount?" + uParams, {
+      headers: authHeaders
+    }, "Zoho unassigned");
+    unassigned = num(u && u.count);
+    console.log("Zoho unassigned count: " + unassigned);
+  } catch (e) {
+    console.log("Zoho unassigned: " + (e instanceof SourceError ? e.message : "could not fetch"));
+  }
+
+  const snap = {
     open: countOf("statusType", "Open"),
     config: countOf("status", env("ZOHO_STATUS_CONFIG", "Waiting on Config")),
-    thirdparty: countOf("status", env("ZOHO_STATUS_THIRDPARTY", "Waiting on Third Party"))
+    thirdparty: countOf("status", env("ZOHO_STATUS_THIRDPARTY", "Waiting on Third Party")),
+    unassigned: unassigned
   };
+  console.log("Zoho snapshot:", JSON.stringify(snap));
+  return snap;
 }
 
 /* ---------- Euphoria ---------- */
@@ -200,7 +222,7 @@ const safe = e => (e instanceof SourceError ? e.message : "Unexpected error whil
 
   try { out.zoho = await zohoSnapshot(); }
   catch (e) { out.errors.zoho.push(safe(e)); }
-  out.errors.zoho.push("Zoho: unassigned, handled and response/resolution times are the next step to add");
+  out.errors.zoho.push("Zoho: handled total and response/resolution times are the next step (they come from Zoho's reports, not the ticket API)");
 
   fs.writeFileSync("data.json", JSON.stringify(out));
   console.log("data.json written: " + Object.keys(out.daily).length + " days of chat figures");
