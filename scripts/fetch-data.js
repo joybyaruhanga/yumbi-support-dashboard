@@ -159,31 +159,26 @@ function durationToHours(v) {
   if (v === null || v === undefined) return null;
   if (typeof v === "number" && !isNaN(v)) return Math.round(v / 3600 * 10) / 10;       // seconds -> hours
   if (typeof v === "string") {
-    const m = v.match(/(\d+)\s*:\s*(\d+)/);                                             // "33:02 hrs"
+    const m = v.match(/(\d+)\s*:\s*(\d+)/);                                             // "07:38 hrs" -> 7.6
     if (m) return Math.round((Number(m[1]) + Number(m[2]) / 60) * 10) / 10;
-    const n = parseFloat(v);
-    if (!isNaN(n)) return Math.round(n / 3600 * 10) / 10;
   }
   return null;
 }
 
-// Fetch one dashboards time metric and reduce its per-day data to a single hours
-// figure (ticket-count weighted). Logs the raw response once so the format can be
-// confirmed. Returns null (tile shows "-") on any trouble, never throws.
+// Zoho already gives the overall average in the response's top-level total field,
+// as a "HH:MM hrs" string, so we read that directly. Two bases are available:
+//   system = full clock time from creation to response/resolution (matches Zoho's
+//            standard Agent Performance report) -- the default
+//   agent  = time within business hours only (excludes nights, weekends, and time
+//            spent waiting on the customer)
+// Switch by setting a ZOHO_TIME_BASIS repository variable to "agent".
 async function zohoAvgTime(dc, authHeaders, path, label) {
   try {
     const resp = await call("https://desk.zoho." + dc + path, { headers: authHeaders }, "Zoho " + label);
-    console.log("Zoho " + label + " raw:", JSON.stringify(resp).slice(0, 600));
-    const arr = (resp && (resp.timeData || resp.data)) || [];
-    if (!Array.isArray(arr) || !arr.length) return null;
-    let totH = 0, totC = 0;
-    for (const d of arr) {
-      const raw = (d.value !== undefined) ? d.value : (d.avgAgentTime !== undefined ? d.avgAgentTime : d.avgSystemTime);
-      const h = durationToHours(raw);
-      const c = Number(d.ticketCount != null ? d.ticketCount : 1);
-      if (h !== null && !isNaN(c) && c > 0) { totH += h * c; totC += c; }
-    }
-    return totC > 0 ? Math.round(totH / totC * 10) / 10 : null;
+    const field = (env("ZOHO_TIME_BASIS", "system") === "agent") ? "totalAvgAgentTime" : "totalAvgSystemTime";
+    const raw = resp && resp[field];
+    console.log("Zoho " + label + " " + field + ": " + raw);
+    return durationToHours(raw);
   } catch (e) {
     console.log("Zoho " + label + ": " + (e instanceof SourceError ? e.message : "could not fetch"));
     return null;
