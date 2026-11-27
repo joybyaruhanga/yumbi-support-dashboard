@@ -33,6 +33,7 @@ jobs:
           LIVECHAT_TOKEN: ${{ secrets.LIVECHAT_TOKEN }}
           EUPHORIA_API_KEY: ${{ secrets.EUPHORIA_API_KEY }}
           EUPHORIA_TENANT_NAME: ${{ secrets.EUPHORIA_TENANT_NAME }}
+          EUPHORIA_TENANT_NAME: ${{ secrets.EUPHORIA_TENANT_NAME }}
           EUPHORIA_QUEUE_NAME: Support
           ZOHO_DC: ${{ vars.ZOHO_DC }}
           ZOHO_DEPARTMENT_ID: ${{ vars.ZOHO_DEPARTMENT_ID }}
