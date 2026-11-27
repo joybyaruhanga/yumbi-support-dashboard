@@ -146,6 +146,13 @@ async function liveChatDaily(from, to, errors) {
 }
 
 /* ---------- Zoho Desk (current backlog snapshot) ---------- */
+// The ticket statuses to show on the board, in order, each as its own count.
+// "Closed" is intentionally left out. To add, remove or reorder statuses later,
+// edit this default OR set a ZOHO_STATUSES repository variable (comma-separated,
+// using the exact Zoho status names).
+const DEFAULT_ZOHO_STATUSES = "Open,Waiting on Customer,Waiting on Brand,Waiting on Third Party,Waiting on Platform Support,Waiting on Config,Waiting on Finance,Queued Queries,Escalated";
+const ZOHO_STATUSES = (env("ZOHO_STATUSES", DEFAULT_ZOHO_STATUSES) || "").split(",").map(s => s.trim()).filter(Boolean);
+
 async function zohoSnapshot() {
   const id = env("ZOHO_CLIENT_ID"), secret = env("ZOHO_CLIENT_SECRET"),
         refresh = env("ZOHO_REFRESH_TOKEN"), org = env("ZOHO_ORG_ID");
@@ -159,7 +166,8 @@ async function zohoSnapshot() {
 
   const authHeaders = { Authorization: "Zoho-oauthtoken " + login.access_token, orgId: org };
 
-  const params = new URLSearchParams({ field: "statusType,status" });
+  // Count of tickets grouped by status (a single COUNT call - never a ticket list).
+  const params = new URLSearchParams({ field: "status" });
   if (env("ZOHO_DEPARTMENT_ID")) params.set("departmentId", env("ZOHO_DEPARTMENT_ID"));
   const counts = await call("https://desk.zoho." + dc + "/api/v1/ticketsCountByFieldValues?" + params, {
     headers: authHeaders
@@ -171,30 +179,10 @@ async function zohoSnapshot() {
     return hit ? num(hit.count) : 0;
   };
 
-  // Unassigned backlog, via the COUNT-only endpoint (returns a single number,
-  // never a ticket list) so the no-lists privacy rule still holds. Isolated in
-  // its own try/catch so a hiccup here never blanks the other three counts.
-  let unassigned = null;
-  try {
-    const uParams = new URLSearchParams({ assignee: "Unassigned" });
-    if (env("ZOHO_DEPARTMENT_ID")) uParams.set("departmentId", env("ZOHO_DEPARTMENT_ID"));
-    const u = await call("https://desk.zoho." + dc + "/api/v1/ticketsCount?" + uParams, {
-      headers: authHeaders
-    }, "Zoho unassigned");
-    unassigned = num(u && u.count);
-    console.log("Zoho unassigned count: " + unassigned);
-  } catch (e) {
-    console.log("Zoho unassigned: " + (e instanceof SourceError ? e.message : "could not fetch"));
-  }
-
-  const snap = {
-    open: countOf("statusType", "Open"),
-    config: countOf("status", env("ZOHO_STATUS_CONFIG", "Waiting on Config")),
-    thirdparty: countOf("status", env("ZOHO_STATUS_THIRDPARTY", "Waiting on Third Party")),
-    unassigned: unassigned
-  };
-  console.log("Zoho snapshot:", JSON.stringify(snap));
-  return snap;
+  // One count per status we want to show (Closed is excluded via the list above).
+  const statuses = ZOHO_STATUSES.map(label => ({ label: label, count: countOf("status", label) }));
+  console.log("Zoho snapshot:", JSON.stringify(statuses));
+  return { statuses: statuses };
 }
 
 /* ---------- Euphoria ---------- */
@@ -222,7 +210,7 @@ const safe = e => (e instanceof SourceError ? e.message : "Unexpected error whil
 
   try { out.zoho = await zohoSnapshot(); }
   catch (e) { out.errors.zoho.push(safe(e)); }
-  out.errors.zoho.push("Zoho: handled total and response/resolution times are the next step (they come from Zoho's reports, not the ticket API)");
+  out.errors.zoho.push("Zoho: average first response and resolution times are the next step (they come from Zoho's reports, not the ticket API)");
 
   fs.writeFileSync("data.json", JSON.stringify(out));
   console.log("data.json written: " + Object.keys(out.daily).length + " days of chat figures");
