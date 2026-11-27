@@ -32,6 +32,11 @@ function addDays(ymd, n) {
   const d = new Date(ymd + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+// "2026-11-27" -> "27-11-2026" (the format Zoho's dashboards API expects)
+function toDDMMYYYY(ymd) {
+  const p = ymd.split("-");
+  return p[2] + "-" + p[1] + "-" + p[0];
+}
 const HISTORY_DAYS = Math.max(1, Math.min(365, Number(env("HISTORY_DAYS", "90")) || 90));
 
 /* ---------- LiveChat (Reports API v3.6), one figure per day ---------- */
@@ -221,18 +226,32 @@ async function zohoSnapshot() {
   console.log("Zoho snapshot:", JSON.stringify(statuses));
 
   // Average first-response and resolution times, from Zoho's reporting (dashboards)
-  // API, scoped to the same department. Aggregates only - no ticket list. Default
-  // period is the last 30 days (override with a ZOHO_METRICS_DURATION variable,
-  // e.g. LAST_7_DAYS).
-  const metricsDur = env("ZOHO_METRICS_DURATION", "LAST_30_DAYS");
+  // API, scoped to the same department. Aggregates only - no ticket list. Computed
+  // once for each date-range preset the dashboard offers (today / yesterday /
+  // last 7 / last 30 / this month), each as an explicit CUSTOM_IN_DATE window, so
+  // the two tiles follow the range picker on the page. Custom arbitrary ranges
+  // aren't precomputed (Zoho takes fixed windows), so the page shows "-" for those.
   const deptQ = deptId ? "&departmentId=" + deptId : "";
-  const avg_first_response = await zohoAvgTime(dc, authHeaders,
-    "/api/v1/dashboards/responseTime?isFirstResponse=true&groupBy=date&duration=" + metricsDur + deptQ, "first response");
-  const avg_resolution = await zohoAvgTime(dc, authHeaders,
-    "/api/v1/dashboards/ticketsResolutionTime?groupBy=date&duration=" + metricsDur + deptQ, "resolution");
-  console.log("Zoho averages (hours):", JSON.stringify({ avg_first_response: avg_first_response, avg_resolution: avg_resolution }));
+  const today = todayInTZ();
+  const windows = {
+    today:     [today, today],
+    yesterday: [addDays(today, -1), addDays(today, -1)],
+    last7:     [addDays(today, -6), today],
+    last30:    [addDays(today, -29), today],
+    month:     [today.slice(0, 8) + "01", today]
+  };
+  const metrics = {};
+  for (const key of Object.keys(windows)) {
+    const span = "&duration=CUSTOM_IN_DATE&startDate=" + toDDMMYYYY(windows[key][0]) + "&endDate=" + toDDMMYYYY(windows[key][1]);
+    const first_response = await zohoAvgTime(dc, authHeaders,
+      "/api/v1/dashboards/responseTime?isFirstResponse=true&groupBy=date" + deptQ + span, key + " first response");
+    const resolution = await zohoAvgTime(dc, authHeaders,
+      "/api/v1/dashboards/ticketsResolutionTime?groupBy=date" + deptQ + span, key + " resolution");
+    metrics[key] = { first_response: first_response, resolution: resolution };
+  }
+  console.log("Zoho metrics (hours):", JSON.stringify(metrics));
 
-  return { statuses: statuses, avg_first_response: avg_first_response, avg_resolution: avg_resolution };
+  return { statuses: statuses, metrics: metrics };
 }
 
 /* ---------- Euphoria ---------- */
