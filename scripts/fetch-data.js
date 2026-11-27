@@ -167,8 +167,13 @@ async function zohoSnapshot() {
   const authHeaders = { Authorization: "Zoho-oauthtoken " + login.access_token, orgId: org };
 
   // Count of tickets grouped by status (a single COUNT call - never a ticket list).
+  // Scoped to the Customer Support department. The department ID is just an
+  // identifier (not a secret), so it is baked in here; a ZOHO_DEPARTMENT_ID repo
+  // secret, if ever set, overrides it. To change teams, edit the number below.
+  const deptId = env("ZOHO_DEPARTMENT_ID", "846539000000979939");
   const params = new URLSearchParams({ field: "status" });
-  if (env("ZOHO_DEPARTMENT_ID")) params.set("departmentId", env("ZOHO_DEPARTMENT_ID"));
+  if (deptId) params.set("departmentId", deptId);
+  console.log("Zoho department filter:", deptId);
   const counts = await call("https://desk.zoho." + dc + "/api/v1/ticketsCountByFieldValues?" + params, {
     headers: authHeaders
   }, "Zoho");
