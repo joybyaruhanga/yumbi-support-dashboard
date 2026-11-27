@@ -68,6 +68,7 @@
   .tiles{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
   .tile{background:var(--surface-2); border:1px solid var(--line); border-radius:11px; padding:13px 14px; position:relative;}
   .tile .label{font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:500;}
+  .tile .snap + .label{padding-right:34px;}
   .tile .val{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:30px; line-height:1.1; margin-top:5px; letter-spacing:-.02em;}
   .tile .val small{font-size:14px; color:var(--muted); font-weight:500;}
   .tile.span2{grid-column:span 2;}
@@ -241,7 +242,8 @@ function render(){
 
   const eState=connState(e,["received","answered","abandoned","agents"]);
   const cState=connState(c,["received","bot","agent","bot_csat","agent_csat"]);
-  const zState=connState(z,["unassigned","open","config","thirdparty","handled_total","avg_first_response","avg_resolution"]);
+  const zStatuses=Array.isArray(z.statuses)?z.statuses:[];
+  const zState=zStatuses.length?{cls:"live",txt:"Connected"}:{cls:"crit",txt:"Unavailable"};
 
   const ansP=pct(e.answered,e.received), abnP=pct(e.abandoned,e.received);
 
@@ -271,9 +273,7 @@ function render(){
   +'<div class="head" style="border-top-color:var(--zoho)"><h2>Zoho</h2><span class="tag">Tickets</span>'
   +'<span class="conn"><span class="dot '+zState.cls+'"></span>'+zState.txt+'</span></div>'
   +'<div class="body"><div class="tiles">'
-  + tile("Unassigned",z.unassigned,"","",snap) + tile("Open",z.open,"","",snap)
-  + tile("Waiting on config",z.config,"","",snap) + tile("Waiting on 3rd party",z.thirdparty,"","",snap)
-  + tile("Handled (team)",z.handled_total,"","span2")
+  + zStatuses.map(function(s){ return tile(s.label, s.count, "", "", snap); }).join("")
   + tile("Avg first response",z.avg_first_response,"h") + tile("Avg resolution",z.avg_resolution,"h")
   +'</div></div></section>';
 
@@ -383,7 +383,7 @@ function summarise(r){
   return {
     euphoria:{received:null, answered:null, abandoned:null, agents:null},
     chat:{received:val("total"), bot:val("bot"), agent:val("agent"), bot_csat:csat("bot_good","bot_bad"), agent_csat:csat("agent_good","agent_bad"), all_csat:csat("all_good","all_bad")},
-    zoho:Object.assign({unassigned:null, open:null, config:null, thirdparty:null, handled_total:null, avg_first_response:null, avg_resolution:null}, allData.zoho||{}),
+    zoho:Object.assign({statuses:[], avg_first_response:null, avg_resolution:null}, allData.zoho||{}),
     as_of:allData.generated_at||null,
     errors:errs
   };
