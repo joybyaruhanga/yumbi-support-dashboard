@@ -254,10 +254,153 @@ async function zohoSnapshot() {
   return { statuses: statuses, metrics: metrics };
 }
 
+
 /* ---------- Euphoria ---------- */
-// Euphoria's call-list API returns caller phone numbers, so it is NOT used here.
-// Waiting on Euphoria to confirm an API call that returns totals only.
-const EUPHORIA_NOTE = "Euphoria: waiting on a totals-only API call from Euphoria";
+
+// First integration attempt.
+// IMPORTANT: The action names are confirmed, but the exact XML parameter
+// names and response fields still need to be verified against Euphoria's API docs.
+
+const EUPHORIA_URL = "https://api.euphoria.co.za/Euphoria.Api.aspx";
+const EUPHORIA_QUEUE = env("EUPHORIA_QUEUE_NAME", "Support");
+
+function xmlEscape(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function xmlDecode(value) {
+  return String(value)
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+async function euphoriaRequest(action, parameters = "") {
+  const tenant = env("EUPHORIA_TENANT_NAME");
+  const apiKey = env("EUPHORIA_API_KEY");
+
+  if (!tenant || !apiKey) {
+    throw new SourceError("Euphoria: credentials not set up yet");
+  }
+
+  const body =
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    "<Document>" +
+      "<Tenant>" +
+        "<Name>" + xmlEscape(tenant) + "</Name>" +
+        "<Auth>" + xmlEscape(apiKey) + "</Auth>" +
+      "</Tenant>" +
+      "<ActionName>" + xmlEscape(action) + "</ActionName>" +
+      parameters +
+    "</Document>";
+
+  let response;
+
+  try {
+    response = await fetch(EUPHORIA_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml; charset=UTF-8"
+      },
+      body
+    });
+  } catch (e) {
+    throw new SourceError("Euphoria: could not connect");
+  }
+
+  if (!response.ok) {
+    throw new SourceError("Euphoria " + action + ": responded " + response.status);
+  }
+
+  const xml = await response.text();
+
+  // Do not log or save the raw XML response.
+  const errorMatch = xml.match(/<Error[^>]*>([\s\S]*?)<\/Error>/i);
+
+  if (errorMatch) {
+    const message = xmlDecode(errorMatch[1]).replace(/<[^>]+>/g, "").trim();
+    console.log("Euphoria " + action + " returned an API error: " +
+      message.slice(0, 150));
+    throw new SourceError("Euphoria " + action + ": API rejected the request");
+  }
+
+  return xml;
+}
+
+// Extract numeric aggregate values from simple XML fields.
+// Only recognised numeric totals are returned; names and other text are ignored.
+function euphoriaNumber(xml, possibleNames) {
+  for (const name of possibleNames) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(
+      "<" + escaped + "(?:\\s[^>]*)?>([\\s\\S]*?)</" + escaped + ">",
+      "i"
+    );
+    const match = xml.match(pattern);
+
+    if (match) {
+      const value = xmlDecode(match[1]).replace(/<[^>]+>/g, "").trim();
+      if (value !== "" && !isNaN(Number(value))) return Number(value);
+    }
+  }
+
+  return null;
+}
+
+async function euphoriaSnapshot(from, to) {
+  // These parameter names are an initial assumption and must be tested.
+  const queueParameter =
+    "<QueueName>" + xmlEscape(EUPHORIA_QUEUE) + "</QueueName>";
+
+  const analyticsParameters =
+    queueParameter +
+    "<StartDate>" + xmlEscape(from) + "</StartDate>" +
+    "<EndDate>" + xmlEscape(to) + "</EndDate>";
+
+  const analyticsXml = await euphoriaRequest(
+    "GetQueueAnalytics",
+    analyticsParameters
+  );
+
+  const realtimeXml = await euphoriaRequest(
+    "GetRealtimeQueueSummaries",
+    queueParameter
+  );
+
+  const analytics = {
+    total: euphoriaNumber(analyticsXml, [
+      "TotalCalls", "TotalCallCount", "CallsOffered", "Total"
+    ]),
+    answered: euphoriaNumber(analyticsXml, [
+      "AnsweredCalls", "AnsweredCallCount", "CallsAnswered", "Answered"
+    ]),
+    abandoned: euphoriaNumber(analyticsXml, [
+      "AbandonedCalls", "AbandonedCallCount", "CallsAbandoned", "Abandoned"
+    ])
+  };
+
+  const agentsLoggedOn = euphoriaNumber(realtimeXml, [
+    "AgentsLoggedOn", "AgentsLoggedIn", "LoggedOnAgents",
+    "LoggedInAgents", "AgentCount"
+  ]);
+
+  console.log("Euphoria Support queue: aggregate request completed");
+
+  return {
+    queue: EUPHORIA_QUEUE,
+    period: { from, to },
+    analytics,
+    agents_logged_on: agentsLoggedOn
+  };
+}
+
 
 /* ---------- run ---------- */
 const safe = e => (e instanceof SourceError ? e.message : "Unexpected error while pulling data");
