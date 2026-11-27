@@ -153,6 +153,43 @@ async function liveChatDaily(from, to, errors) {
 const DEFAULT_ZOHO_STATUSES = "Open,Waiting on Customer,Waiting on Brand,Waiting on Third Party,Waiting on Platform Support,Waiting on Config,Waiting on Finance,Queued Queries,Escalated";
 const ZOHO_STATUSES = (env("ZOHO_STATUSES", DEFAULT_ZOHO_STATUSES) || "").split(",").map(s => s.trim()).filter(Boolean);
 
+// Turn a Zoho duration into hours. Zoho returns these either as a number of
+// seconds or as a "HH:MM hrs" string, depending on the endpoint - handle both.
+function durationToHours(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && !isNaN(v)) return Math.round(v / 3600 * 10) / 10;       // seconds -> hours
+  if (typeof v === "string") {
+    const m = v.match(/(\d+)\s*:\s*(\d+)/);                                             // "33:02 hrs"
+    if (m) return Math.round((Number(m[1]) + Number(m[2]) / 60) * 10) / 10;
+    const n = parseFloat(v);
+    if (!isNaN(n)) return Math.round(n / 3600 * 10) / 10;
+  }
+  return null;
+}
+
+// Fetch one dashboards time metric and reduce its per-day data to a single hours
+// figure (ticket-count weighted). Logs the raw response once so the format can be
+// confirmed. Returns null (tile shows "-") on any trouble, never throws.
+async function zohoAvgTime(dc, authHeaders, path, label) {
+  try {
+    const resp = await call("https://desk.zoho." + dc + path, { headers: authHeaders }, "Zoho " + label);
+    console.log("Zoho " + label + " raw:", JSON.stringify(resp).slice(0, 600));
+    const arr = (resp && (resp.timeData || resp.data)) || [];
+    if (!Array.isArray(arr) || !arr.length) return null;
+    let totH = 0, totC = 0;
+    for (const d of arr) {
+      const raw = (d.value !== undefined) ? d.value : (d.avgAgentTime !== undefined ? d.avgAgentTime : d.avgSystemTime);
+      const h = durationToHours(raw);
+      const c = Number(d.ticketCount != null ? d.ticketCount : 1);
+      if (h !== null && !isNaN(c) && c > 0) { totH += h * c; totC += c; }
+    }
+    return totC > 0 ? Math.round(totH / totC * 10) / 10 : null;
+  } catch (e) {
+    console.log("Zoho " + label + ": " + (e instanceof SourceError ? e.message : "could not fetch"));
+    return null;
+  }
+}
+
 async function zohoSnapshot() {
   const id = env("ZOHO_CLIENT_ID"), secret = env("ZOHO_CLIENT_SECRET"),
         refresh = env("ZOHO_REFRESH_TOKEN"), org = env("ZOHO_ORG_ID");
@@ -187,7 +224,20 @@ async function zohoSnapshot() {
   // One count per status we want to show (Closed is excluded via the list above).
   const statuses = ZOHO_STATUSES.map(label => ({ label: label, count: countOf("status", label) }));
   console.log("Zoho snapshot:", JSON.stringify(statuses));
-  return { statuses: statuses };
+
+  // Average first-response and resolution times, from Zoho's reporting (dashboards)
+  // API, scoped to the same department. Aggregates only - no ticket list. Default
+  // period is the last 30 days (override with a ZOHO_METRICS_DURATION variable,
+  // e.g. LAST_7_DAYS).
+  const metricsDur = env("ZOHO_METRICS_DURATION", "LAST_30_DAYS");
+  const deptQ = deptId ? "&departmentId=" + deptId : "";
+  const avg_first_response = await zohoAvgTime(dc, authHeaders,
+    "/api/v1/dashboards/responseTime?isFirstResponse=true&groupBy=date&duration=" + metricsDur + deptQ, "first response");
+  const avg_resolution = await zohoAvgTime(dc, authHeaders,
+    "/api/v1/dashboards/ticketsResolutionTime?groupBy=date&duration=" + metricsDur + deptQ, "resolution");
+  console.log("Zoho averages (hours):", JSON.stringify({ avg_first_response: avg_first_response, avg_resolution: avg_resolution }));
+
+  return { statuses: statuses, avg_first_response: avg_first_response, avg_resolution: avg_resolution };
 }
 
 /* ---------- Euphoria ---------- */
