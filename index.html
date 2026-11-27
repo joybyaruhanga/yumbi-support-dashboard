@@ -383,7 +383,13 @@ function summarise(r){
   return {
     euphoria:{received:null, answered:null, abandoned:null, agents:null},
     chat:{received:val("total"), bot:val("bot"), agent:val("agent"), bot_csat:csat("bot_good","bot_bad"), agent_csat:csat("agent_good","agent_bad"), all_csat:csat("all_good","all_bad")},
-    zoho:Object.assign({statuses:[], avg_first_response:null, avg_resolution:null}, allData.zoho||{}),
+    zoho:(function(){
+      var zd=allData.zoho||{};
+      var m=(zd.metrics&&zd.metrics[r.key])||{};   // averages for the selected preset ("-" for custom)
+      return { statuses:Array.isArray(zd.statuses)?zd.statuses:[],
+               avg_first_response:has(m.first_response)?m.first_response:null,
+               avg_resolution:has(m.resolution)?m.resolution:null };
+    })(),
     as_of:allData.generated_at||null,
     errors:errs
   };
